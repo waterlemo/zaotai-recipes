@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f8f6ef">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="灶台菜谱">
+  <meta name="description" content="把刷到的好菜存下来，下厨时跟着做。">
+  <title>灶台菜谱 · 我的私房菜笔记</title>
+  <link rel="icon" href="./icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="./icon.png">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="stylesheet" href="./styles.css?v=c869f1b103a9c220">
+  <script type="module" src="./app.js?v=623b9798f39aa29a"></script>
+  <meta name="recipe-library" content="./library.json">
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-inner">
+      <a href="#recipes" class="brand" aria-label="灶台菜谱首页">
+        <img src="./icon.svg" width="40" height="40" alt="">
+        <span><strong>灶台菜谱</strong><small>我的私房菜笔记</small></span>
+      </a>
+      <nav id="navigation" aria-label="主要导航"></nav>
+      <span class="private-label"><span></span> 私人菜谱本</span>
+    </div>
+  </header>
+  <main id="main" class="shell" tabindex="-1"><p class="loading">正在打开菜谱本…</p></main>
+  <footer class="footer shell"><span>灶台菜谱</span><span>好好吃饭，好好做菜。</span></footer>
+  <div id="toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>
