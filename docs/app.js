@@ -26,6 +26,14 @@ const sourceLink = (url, label = '查看抖音原片') => url
   ? `<a class="button subtle" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${icon('link')}${label}</a>` : '';
 const sampleImage = new URL('./potato-shrimp.jpg', import.meta.url).href;
 const libraryUrl = document.querySelector('meta[name="recipe-library"]')?.content || '/api/library';
+const cloudUrl = document.querySelector('meta[name="recipe-cloud"]')?.content;
+let cloudToken = '';
+let cloudJobId = '';
+let cloudTimer;
+try {
+  cloudToken = sessionStorage.getItem('zaotai-cloud-token') || '';
+  cloudJobId = localStorage.getItem('zaotai-cloud-job') || '';
+} catch {}
 const statuses = {
   queued: ['已收藏', 'wait'], processing: ['正在整理', 'wait'],
   'needs-video': ['整理未完成', 'attention'], review: ['等待重新整理', 'wait'], saved: ['已存菜谱', '']
@@ -67,9 +75,84 @@ const navigate = hash => {
 };
 
 function nav(active) {
-  navigation.innerHTML = [['recipes', 'book', '我的菜谱'], ['inbox', 'inbox', '收件箱'], ['cook', 'pot', '跟做']]
-    .filter(([key]) => !library.readOnly || key !== 'inbox')
+  navigation.innerHTML = [['recipes', 'book', '我的菜谱'], ['inbox', 'inbox', '收件箱'], ['cook', 'pot', '跟做'], ['add', 'plus', '添加菜谱']]
+    .filter(([key]) => key === 'add' ? Boolean(cloudUrl) : !library.readOnly || key !== 'inbox')
     .map(([key, mark, label]) => `<a href="#${key}" class="nav-link"${active === key ? ' aria-current="page"' : ''}>${icon(mark)}${label}</a>`).join('');
+}
+
+function cloudForm() {
+  main.innerHTML = `<header class="page-header"><h1>添加菜谱</h1><p>粘贴抖音链接，或从相册选择视频。</p></header>
+    <form id="cloud-form" class="box fields">
+      <label class="field">上传口令<input name="token" type="password" autocomplete="current-password" required value="${esc(cloudToken)}"></label>
+      <label class="field">抖音分享链接<textarea name="share" maxlength="12000" placeholder="在抖音点分享，再复制链接"></textarea></label>
+      <label class="field">视频文件<input name="video" type="file" accept="video/*"></label>
+      <button type="submit" class="button primary">提交并整理</button>
+      <p id="cloud-status" role="status" aria-live="polite"></p>
+      <a id="cloud-result" class="button subtle" hidden>打开新菜谱</a>
+    </form>`;
+  if (cloudJobId && cloudToken) void pollCloud();
+}
+
+async function cloudApi(path, options = {}) {
+  return api(new URL(path, cloudUrl), { ...options,
+    headers: { ...options.headers, Authorization: 'Bearer ' + cloudToken } });
+}
+
+async function submitCloud(formData) {
+  const video = formData.get('video');
+  const share = formData.get('share').trim();
+  if (video.size > 100 * 1024 * 1024) throw new Error('请选择 100 MB 以内的视频。');
+  if (!video.size && !share) throw new Error('请填写链接或选择视频。');
+  cloudToken = formData.get('token').trim();
+  const output = main.querySelector('#cloud-status');
+  output.textContent = video.size ? '正在准备上传…' : '正在提交链接…';
+  const job = await cloudApi('/v1/jobs', json('POST', { share, size: video.size }));
+  if (job.upload) {
+    output.textContent = '正在上传视频，请保持页面打开。';
+    const upload = new FormData();
+    for (const [key, value] of Object.entries(job.upload.fields)) upload.append(key, value);
+    upload.append('file', video);
+    const reply = await fetch(job.upload.url, { method: 'POST', body: upload });
+    if (!reply.ok) throw new Error('视频上传失败，请重试。');
+  }
+  await cloudApi(`/v1/jobs/${job.id}/submit`, { method: 'POST' });
+  cloudJobId = job.id;
+  try {
+    sessionStorage.setItem('zaotai-cloud-token', cloudToken);
+    localStorage.setItem('zaotai-cloud-job', cloudJobId);
+  } catch {}
+  output.textContent = '已提交，可以关闭页面。';
+  void pollCloud();
+}
+
+async function pollCloud() {
+  clearTimeout(cloudTimer);
+  const output = main.querySelector('#cloud-status');
+  const id = cloudJobId;
+  if (!output || !id) return;
+  try {
+    const job = await cloudApi(`/v1/jobs/${id}`);
+    if (id !== cloudJobId || !output.isConnected) return;
+    if (job.status === 'failed') { output.textContent = job.message; return; }
+    if (job.status === 'published') {
+      await refresh();
+      if (id !== cloudJobId || !output.isConnected) return;
+      if (findRecipe(job.id)) {
+        output.textContent = `已发布《${job.title}》`;
+        const result = main.querySelector('#cloud-result');
+        result.href = `#recipe/${job.id}`;
+        result.hidden = false;
+        return;
+      }
+      output.textContent = '整理完成，正在更新菜谱网站。';
+    } else {
+      output.textContent = job.status === 'processing' ? '正在整理视频，可以关闭页面。' : '已排队，可以关闭页面。';
+    }
+  } catch (error) {
+    if (output.isConnected) output.textContent = error.message;
+    return;
+  }
+  cloudTimer = setTimeout(pollCloud, 10000);
 }
 
 function card(recipe, destination = 'recipe') {
@@ -248,13 +331,15 @@ function missing() {
 
 function render() {
   routeSequence += 1;
+  clearTimeout(cloudTimer);
   const [page, first, second] = getRoute();
   if (library.readOnly && ['inbox', 'edit'].includes(page)) {
     navigate('#recipes');
     return;
   }
-  nav(page === 'inbox' || (page === 'edit' && first === 'inbox') ? 'inbox' : page === 'cook' ? 'cook' : 'recipes');
+  nav(page === 'inbox' || (page === 'edit' && first === 'inbox') ? 'inbox' : ['cook', 'add'].includes(page) ? page : 'recipes');
   if (page === 'inbox') inbox();
+  else if (page === 'add' && cloudUrl) cloudForm();
   else if (page === 'recipe') findRecipe(first) ? detail(findRecipe(first)) : missing();
   else if (page === 'edit') edit(first, second);
   else if (page === 'cook') cook(first, second);
@@ -264,6 +349,13 @@ function render() {
 async function refresh() {
   const sequence = ++refreshSequence;
   const result = await api(libraryUrl, { cache: 'no-cache' });
+  if (result.readOnly && cloudUrl) {
+    const cloud = await api(new URL('./cloud/library.json', import.meta.url), { cache: 'no-cache' }).catch(() => null);
+    if (Array.isArray(cloud?.recipes)) {
+      const cloudIds = new Set(cloud.recipes.map(recipe => recipe.id));
+      result.recipes = [...cloud.recipes, ...result.recipes.filter(recipe => !cloudIds.has(recipe.id))];
+    }
+  }
   if (sequence < lastAppliedRefresh) return;
   lastAppliedRefresh = sequence;
   library = result;
@@ -281,7 +373,8 @@ main.addEventListener('submit', async event => {
   const sequence = routeSequence;
   submit.disabled = true;
   try {
-    if (form.id === 'share-form') {
+    if (form.id === 'cloud-form') await submitCloud(data);
+    else if (form.id === 'share-form') {
       const item = await api('/api/inbox', json('POST', { share: data.get('share') }));
       form.reset();
       await refresh();
