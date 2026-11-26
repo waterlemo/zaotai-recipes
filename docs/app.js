@@ -145,6 +145,8 @@ async function pollCloud() {
         return;
       }
       output.textContent = '整理完成，正在更新菜谱网站。';
+    } else if (job.status === 'publishing') {
+      output.textContent = job.message || '菜谱已保存，正在等待网页发布。';
     } else {
       output.textContent = job.status === 'processing' ? '正在整理视频，可以关闭页面。' : '已排队，可以关闭页面。';
     }
